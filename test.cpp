@@ -1,123 +1,140 @@
-// Include the header file including the declaration of the QbitRegister class
-// and of its methods.
+//------------------------------------------------------------------------------
+// Copyright (C) 2017 Intel Corporation 
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//------------------------------------------------------------------------------
+
+/* Test for qHiPSTER:
+ * proper implementaiton of the methods to compute the expectation value of Pauli strings
+ * on single, two or multiple qubitsi.
+ */
+
 #include "../qureg/qureg.hpp"
 
+using namespace std;
 
-// Start of the main program (C++ language).
+#include <iostream>	// to use: std::cout, std::cin and std::endl
+#include <iomanip>	// to use: setw() in making tables
+#include <complex>
+
+
+/////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////
+
 int main(int argc, char **argv)
 {
-  // Create the MPI environment, passing the same argument to all the ranks.
+  unsigned myrank=0, nprocs=1;
+#ifdef INTELQS_HAS_MPI
   openqu::mpi::Environment env(argc, argv);
-  // qHiPSTER is structured so that only even number of ranks are used to store
-  // and manipulate the quantum state. In case the number of ranks is not supported,
-  // try to decrease it by 1 until it is.
-  if (env.is_usefull_rank() == false) return 0;
-  // qHiPSTER has functions that simplify some MPI instructions. However, it is important
-  // to keep trace of the current rank.
-  int myid = env.rank();
+  myrank = openqu::mpi::Environment::rank();
+  nprocs = openqu::mpi::Environment::size();
+//  MPI_rank(MPI_COMM_WORLD, &myrank);
+#endif
 
+  double sum = 0.;
 
+  std::cout << "------------------\n"
+            << "   Single qubit   \n"
+            << "------------------\n";
 
-  // The number of qubits in the quantum register is provided by an integer variable.
-  // Notice that qubits will have indices: 0, 1, 2, ..., N-1.
-  int N = 4;
-  std::size_t tmpSize = 0;
+  QubitRegister<ComplexDP> psi(1,"base",0);
+  psi.EnableStatistics();  
+  psi.Print(" initial state |psi>=|-> : ");
 
-  //// FIRST EXAMPLE ////
-  {
-      if (myid == 0) printf("\n --- FIRST EXAMPLE --- \n");
+  psi.ApplyHadamard(0);
 
-      // Create the state of a quantum register, having N qubits.
-      // The state is initialized as a computational basis state (using the keyword "base")
-      // corresponding to the index 0. The index corresponds to a N-bit integer in decimal
-      // representation. With N qubits there are 2^N indices, from 0 to 2^{N-1}.
-      QubitRegister<ComplexDP> psi1(N, "base", 0);
+  psi.Print(" initial state |psi>=|-> : ");
 
-      // Let us apply a X Pauli gate on qubit 0, effectively flipping it from |0> to |1>.
-      psi1.ApplyPauliX(0);
+  psi.ExpectationValueX(0,sum);
+  std::cout << "<psi|X|psi> = " << sum << "\n";
 
-      // Let us apply an Hadamard gate on all other qubits.
-      for (unsigned q=1; q<N; ++q)
+  psi.Print(" current state should still be |psi>=|-> : ");
+
+// using the general method
+  std::vector<unsigned> qubits(1,0);
+  std::vector<unsigned> observables(1,1);
+  sum=0;
+  psi.ExpectationValue(qubits,observables,sum);
+  std::cout << " general method  __  <psi|X|psi> = " << sum << "\n";
+
+  psi.Print(" current state should still be |psi>=|-> : ");
+
+  psi.ApplyPauliZ(0);
+  psi.Print(" current state should be Z|psi>=|+> : ");
+
+  sum=0;
+  psi.ExpectationValueX(0,sum);
+  std::cout << " <psi|X|psi> = " << sum << "\n";
+  sum=0;
+  psi.ExpectationValue(qubits,observables,sum);
+  std::cout << " general method  __  <psi|X|psi> = " << sum << "\n";
+
+  std::cout << "\n ------ repeat the experiment 100 times ---- \n";
+
+  for (int i=0; i<100; i++)
       {
-          psi1.ApplyHadamard(q);
-      }
+      psi.ExpectationValueX(0,sum);
+      std::cout << i << ": " << sum << "\n";}
+  sum=0;
+  psi.ExpectationValueX(0,sum);
+  std::cout << "after 100 expectation evaluations <psi|X|psi> = " << sum << "\n";
 
-      // Two qubit gates are applied in a similar way. For example, a C-NOT between qubit 2
-      // (control qubit) and qubit 1 (target qubit):
-      unsigned control_q = 2;
-      unsigned target_q = 1;
-      psi1.ApplyCPauliX( control_q , target_q );
+  std::cout << std::endl;
+  psi.GetStatistics(); 
 
-      // To extract information from the quantum register, one can obtain the probability of
-      // measuring a certain qubit, here qubit 1, in the Z basis and obtaining the outcome "-1".
-      // This corresponds to the probability of qubit 1 being in the |1> state.
-      unsigned measured_q = 1;
-      double prob = 0;
-      prob = psi1.GetProbability( measured_q );
+  if (myrank==0) std::cout << " goodbye \n" << std::endl;
 
-      // Print such probability to screen, only if MPI rank=0.
-      // This is done to avoid each rank to write the same information to screen.
-      if (myid == 0)
-      {
-          printf("probability that qubit %d is in state |1> is %g\n", measured_q, prob);
-      }
-  }
+  std::cout << "------------------\n"
+            << "     4 qubits     \n"
+            << "------------------\n";
 
+  QubitRegister<ComplexDP> phi(4,"base",0);
+  phi.Print(" initial state |phi> = |0> |1> |+> |-> = |01+-> :\n");
+  
+  phi.ApplyPauliX(1);
+  //phi.ApplyPauliZ(2);
 
-  //// SECOND EXAMPLE ////
-  {
-      if (myid == 0) printf("\n --- SECOND EXAMPLE --- \n");
+  phi.ApplyHadamard(2);
+  phi.ApplyPauliX(3);
+  phi.ApplyHadamard(3);
 
-      // Create the state of a quantum register, having N qubits.
-      // The state is initialized as a random state (using the keyword "rand"):
-      // This requires a random number generator (RNG), that we initialize just before the second
-      // register. Notice that '777' plays the role of the seed to initialize the RNG.and the seed
-      std::default_random_engine generator;
-      QubitRegister<ComplexDP> psi2(N, "rand", 777);
+  phi.Print(" initial state |phi> = |0> |1> |+> |-> = |01+-> :\n");
 
-      // Let us apply a X Pauli gate on qubit 0, effectively flipping it from |0> to |1>.
-      psi2.ApplyPauliX(0);
+  qubits.assign({0,2});
+  observables.assign({3,1});
+  sum=0;
+  phi.ExpectationValue(qubits,observables,sum);
+  std::cout << " <phi|Z_0 X_2|phi> = " << sum << "\n";
 
-      // Let us apply an Hadamard gate on all other qubits.
-      for (unsigned q=1; q<N; ++q)
-      {
-          psi2.ApplyHadamard(q);
-      }
+  qubits.assign({0,2});
+  observables.assign({3,2});
+  sum=0;
+  phi.ExpectationValue(qubits,observables,sum);
+  std::cout << " <phi|Z_0 Y_2|phi> = " << sum << "\n";
 
-      // One can define an arbitrary single qubit gate and apply it to the chosen qubit.
-      // The quantum gate G is given by a 2x2 unitary matrix:
-      TM2x2<ComplexDP> G;
-      G(0, 0) = {0.592056606032915, 0.459533060553574}; 
-      G(0, 1) = {-0.314948020757856, -0.582328159830658};
-      G(1, 0) = {0.658235557641767, 0.070882241549507}; 
-      G(1, 1) = {0.649564427121402, 0.373855203932477};
+  qubits.assign({1,2});
+  observables.assign({3,1});
+  sum=0;
+  phi.ExpectationValue(qubits,observables,sum);
+  std::cout << " <phi|Z_1 X_2|phi> = " << sum << "\n";
 
-      unsigned chosen_q = 3;
-      psi2.Apply1QubitGate(chosen_q, G);
+  qubits.assign({0,3});
+  observables.assign({3,1});
+  sum=0;
+  phi.ExpectationValue(qubits,observables,sum);
+  std::cout << " <phi|Z_0 X_3|phi> = " << sum << "\n";
 
-      // It is also possible to apply the arbitrary gate specified by G controlled on the state
-      // of another qubit. G is applied only when control_q is in |0>.
-      unsigned control_q = 1;
-      chosen_q = 2;
-      psi2.ApplyControlled1QubitGate( control_q, chosen_q, G);
-
-      // To extract information from the quantum register, one can obtain the expectation value
-      // of Pauli strings. For example, consider the Paulis tring given by:
-      //     X_0 . id_1 . Z_2 , Y_3
-      // Such observable is defined by the position of the non-trivial Pauli matrices:
-      std::vector<unsigned> qubits_to_be_measured= {0,2,3};
-      // And by the corresponding Pauli matrices (X=1, Y=2, Z=3)
-      std::vector<unsigned> observables = {1,3,2};
-
-      // The expectation value <psi2|X_0.id_1.Z_2.Y_3|psi2> is obtained via:
-      double average = 0.;
-      psi2.ExpectationValue(qubits_to_be_measured, observables, average);
-      // Print the expectation value to screen.
-      if (myid == 0)
-      {
-          printf("expectation value <psi2|X_0.id_1.Z_2.Y_3|psi2> = %g\n", average);
-      }
-  }
+  return 0;
 }
-
 
